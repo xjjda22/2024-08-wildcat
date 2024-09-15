@@ -16,6 +16,7 @@ function _executeWithdrawal(
     uint32 expiry,
     uint baseCalldataSize
 ) internal returns (uint256) {
+    WithdrawalBatch memory batch = _withdrawalData.batches[expiry];
     // Ensure state is updated before external calls
     if (expiry >= block.timestamp && !state.isClosed) {
         revert_WithdrawalBatchNotExpired();
@@ -40,8 +41,6 @@ function _queueWithdrawal(
     uint baseCalldataSize
 ) internal returns (uint32 expiry) {
     require(msg.sender == accountAddress, "Unauthorized access");
-    // Emit event for withdrawal queuing
-    emit WithdrawalQueued(accountAddress, expiry, scaledAmount);
     // Proceed with queuing logic...
 }
 ```
@@ -89,7 +88,6 @@ function executeWithdrawals(
     address[] calldata accountAddresses,
     uint32[] calldata expiries
 ) external nonReentrant sphereXGuardExternal returns (uint256[] memory amounts) {
-    require(accountAddresses.length <= MAX_WITHDRAWALS, "Too many withdrawals");
     require(accountAddresses.length == expiries.length, "Invalid array length");
     amounts = new uint256[](accountAddresses.length);
     MarketState memory state = _getUpdatedState();
