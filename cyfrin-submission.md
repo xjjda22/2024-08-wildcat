@@ -16,7 +16,6 @@ function _executeWithdrawal(
     uint32 expiry,
     uint baseCalldataSize
 ) internal returns (uint256) {
-    WithdrawalBatch memory batch = _withdrawalData.batches[expiry];
     // Ensure state is updated before external calls
     if (expiry >= block.timestamp && !state.isClosed) {
         revert_WithdrawalBatchNotExpired();
@@ -41,6 +40,8 @@ function _queueWithdrawal(
     uint baseCalldataSize
 ) internal returns (uint32 expiry) {
     require(msg.sender == accountAddress, "Unauthorized access");
+    // Emit event for withdrawal queuing
+    emit WithdrawalQueued(accountAddress, expiry, scaledAmount);
     // Proceed with queuing logic...
 }
 ```
@@ -75,6 +76,71 @@ function _processExpiredWithdrawalBatch(MarketState memory state) internal {
 }
 ```
 
+#### 5. **Insufficient Gas Griefing**
+- **Severity**: Medium
+- **Description**: The contract does not account for potential gas griefing attacks when executing multiple withdrawals.
+- **Affected Function**: `executeWithdrawals`
+- **Impact**: Could lead to failed transactions if gas limits are exceeded.
+- **Tools Used**: Manual code review
+- **Recommendations**: Implement checks to ensure that gas limits are respected.
+
+```solidity
+function executeWithdrawals(
+    address[] calldata accountAddresses,
+    uint32[] calldata expiries
+) external nonReentrant sphereXGuardExternal returns (uint256[] memory amounts) {
+    require(accountAddresses.length <= MAX_WITHDRAWALS, "Too many withdrawals");
+    require(accountAddresses.length == expiries.length, "Invalid array length");
+    amounts = new uint256[](accountAddresses.length);
+    MarketState memory state = _getUpdatedState();
+    for (uint256 i = 0; i < accountAddresses.length; i++) {
+        amounts[i] = _executeWithdrawal(state, accountAddresses[i], expiries[i], msg.data.length);
+    }
+    _writeState(state);
+    return amounts;
+}
+```
+
+#### 6. **Potential DoS with External Calls**
+- **Severity**: High
+- **Description**: The contract does not handle potential failures from external calls, which could lead to DoS.
+- **Affected Function**: `repayAndProcessUnpaidWithdrawalBatches`
+- **Impact**: If an external call fails, it could prevent further processing.
+- **Tools Used**: Manual code review
+- **Recommendations**: Ensure that external calls are checked for success.
+
+```solidity
+function repayAndProcessUnpaidWithdrawalBatches(
+    uint256 repayAmount,
+    uint256 maxBatches
+) public nonReentrant sphereXGuardExternal {
+    if (repayAmount > 0) {
+        require(asset.safeTransferFrom(msg.sender, address(this), repayAmount), "Transfer failed");
+        emit_DebtRepaid(msg.sender, repayAmount);
+    }
+    // Proceed with processing...
+}
+```
+
+#### 7. **Potential for Unbounded Loops**
+- **Severity**: Medium
+- **Description**: The `executeWithdrawals` function iterates over user input without bounds checking.
+- **Affected Function**: `executeWithdrawals`
+- **Impact**: Could lead to DoS if the input size is too large.
+- **Tools Used**: Manual code review
+- **Recommendations**: Implement checks to limit the size of input arrays.
+
+```solidity
+function executeWithdrawals(
+    address[] calldata accountAddresses,
+    uint32[] calldata expiries
+) external nonReentrant sphereXGuardExternal returns (uint256[] memory amounts) {
+    require(accountAddresses.length <= MAX_WITHDRAWALS, "Too many withdrawals");
+    // Proceed with processing...
+}
+```
+
+
 
 ### low-level findings  
 
@@ -95,5 +161,23 @@ function _queueWithdrawal(
 ) internal returns (uint32 expiry) {
     // Existing logic...
     emit WithdrawalQueued(accountAddress, expiry, scaledAmount);
+}
+```
+
+#### 2. **Magic Numbers**
+- **Severity**: Low
+- **Description**: The code contains magic numbers that could be replaced with named constants for clarity.
+- **Affected Function**: Various
+- **Impact**: Reduces code readability and maintainability.
+- **Tools Used**: Manual code review
+- **Recommendations**: Replace magic numbers with named constants.
+
+```solidity
+uint256 constant BASE_CALDATA_SIZE = 0x24;
+
+function queueWithdrawal(
+    uint256 amount
+) external nonReentrant sphereXGuardExternal returns (uint32 expiry) {
+    return _queueWithdrawal(state, account, msg.sender, scaledAmount, amount, BASE_CALDATA_SIZE);
 }
 ```
